@@ -7,10 +7,8 @@ mod formatting;
 pub use error::OgImageError;
 
 use crate::env::var;
-use crate::formatting::{serialize_bytes, serialize_number, serialize_optional_number};
 use reqwest::StatusCode;
 use serde::Serialize;
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tempfile::NamedTempFile;
@@ -19,30 +17,51 @@ use tokio::process::Command;
 use tracing::{debug, error, info, instrument, warn};
 
 /// Data structure containing information needed to generate an OpenGraph image
-/// for a crates.io crate.
 #[derive(Debug, Clone, Serialize)]
 pub struct OgImageData<'a> {
-    /// The crate name
-    pub name: &'a str,
-    /// Latest version string (e.g., "1.0.210")
-    pub version: &'a str,
-    /// Crate description text
-    pub description: Option<&'a str>,
-    /// License information (e.g., "MIT/Apache-2.0")
-    pub license: Option<&'a str>,
-    /// Keywords/categories for the crate
-    pub tags: &'a [&'a str],
+    /// The prediction market question
+    pub question: &'a str,
     /// Author information
-    pub authors: &'a [OgImageAuthorData<'a>],
-    /// Source lines of code count (optional)
-    #[serde(serialize_with = "serialize_optional_number")]
-    pub lines_of_code: Option<u32>,
-    /// Package size in bytes
-    #[serde(serialize_with = "serialize_bytes")]
-    pub crate_size: u32,
-    /// Total number of releases
-    #[serde(serialize_with = "serialize_number")]
-    pub releases: u32,
+    pub author: OgImageAuthorData<'a>,
+    /// Community information
+    pub community: OgImageCommunityData<'a>,
+    /// Current outcome status
+    pub outcome: &'a str,
+    /// Graph data containing outcome-specific order history
+    pub graph: &'a [OgImageGraphData<'a>],
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct OgImageCommunityData<'a> {
+    /// Community handle
+    pub handle: &'a str,
+    /// Community avatar URL
+    pub avatar: &'a str,
+}
+
+impl<'a> OgImageCommunityData<'a> {
+    /// Creates a new `OgImageCommunityData` with the specified handle and avatar URL.
+    pub const fn new(handle: &'a str, avatar: &'a str) -> Self {
+        Self { handle, avatar }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct OgImageGraphData<'a> {
+    /// Outcome identifier (e.g., "Yes", "No")
+    pub outcome: &'a str,
+    /// Color hex code for this outcome
+    pub color: &'a str,
+    /// Historical order data points for this outcome
+    pub data: &'a [OgImageDataPoint],
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct OgImageDataPoint {
+    /// Unix timestamp
+    pub time: u64,
+    /// Value at that time
+    pub value: u32,
 }
 
 /// Author information for OpenGraph image generation
@@ -50,19 +69,14 @@ pub struct OgImageData<'a> {
 pub struct OgImageAuthorData<'a> {
     /// Author username/name
     pub name: &'a str,
-    /// Optional avatar URL
-    pub avatar: Option<Cow<'a, str>>,
+    /// Avatar URL
+    pub avatar: &'a str,
 }
 
 impl<'a> OgImageAuthorData<'a> {
-    /// Creates a new `OgImageAuthorData` with the specified name and optional avatar.
-    pub const fn new(name: &'a str, avatar: Option<Cow<'a, str>>) -> Self {
+    /// Creates a new `OgImageAuthorData` with the specified name and avatar URL.
+    pub const fn new(name: &'a str, avatar: &'a str) -> Self {
         Self { name, avatar }
-    }
-
-    /// Creates a new `OgImageAuthorData` with a URL-based avatar.
-    pub fn with_url(name: &'a str, url: impl Into<Cow<'a, str>>) -> Self {
-        Self::new(name, Some(url.into()))
     }
 }
 
@@ -221,114 +235,139 @@ impl OgImageGenerator {
 
     /// Processes avatars by downloading URLs and copying assets to the assets directory.
     ///
-    /// This method handles both asset-based avatars (which are copied from the bundled assets)
-    /// and URL-based avatars (which are downloaded from the internet).
+    /// This method handles URL-based avatars (which are downloaded from the internet).
     /// Returns a mapping from avatar source to the local filename.
-    #[instrument(skip(self, data), fields(krate.name = %data.name))]
+    #[instrument(skip(self, data), fields(question = %data.question))]
     async fn process_avatars<'a>(
         &self,
         data: &'a OgImageData<'_>,
         assets_dir: &Path,
     ) -> Result<HashMap<&'a str, String>, OgImageError> {
         let mut avatar_map = HashMap::new();
-
         let client = reqwest::Client::new();
-        for (index, author) in data.authors.iter().enumerate() {
-            if let Some(avatar) = &author.avatar {
-                debug!(
-                    author_name = %author.name,
-                    avatar_url = %avatar,
-                    "Processing avatar for author {}", author.name
-                );
 
-                // Download the avatar from the URL
-                debug!(url = %avatar, "Downloading avatar from URL: {avatar}");
-                let response = client.get(avatar.as_ref()).send().await.map_err(|err| {
-                    OgImageError::AvatarDownloadError {
-                        url: avatar.to_string(),
-                        source: err,
-                    }
-                })?;
+        // Process author avatar
+        let author_avatar = &data.author.avatar;
+        debug!(
+            author_name = %data.author.name,
+            avatar_url = %author_avatar,
+            "Processing avatar for author {}", data.author.name
+        );
 
-                let status = response.status();
-                if status == StatusCode::NOT_FOUND {
-                    warn!(url = %avatar, "Avatar URL returned 404 Not Found");
-                    continue; // Skip this avatar if not found
-                }
+        if let Some(filename) = self
+            .download_avatar(&client, author_avatar, "author", assets_dir)
+            .await?
+        {
+            avatar_map.insert(author_avatar.as_ref(), filename);
+        }
 
-                if let Err(err) = response.error_for_status_ref() {
-                    return Err(OgImageError::AvatarDownloadError {
-                        url: avatar.to_string(),
-                        source: err,
-                    });
-                }
+        // Process community avatar
+        let community_avatar = &data.community.avatar;
+        debug!(
+            community_handle = %data.community.handle,
+            avatar_url = %community_avatar,
+            "Processing avatar for community {}", data.community.handle
+        );
 
-                let content_length = response.content_length();
-                debug!(
-                    url = %avatar,
-                    content_length = ?content_length,
-                    status = %response.status(),
-                    "Avatar download response received"
-                );
-
-                let bytes = response.bytes().await;
-                let bytes = bytes.map_err(|err| {
-                    error!(url = %avatar, error = %err, "Failed to read avatar response bytes");
-                    OgImageError::AvatarDownloadError {
-                        url: (*avatar).to_string(),
-                        source: err,
-                    }
-                })?;
-
-                debug!(url = %avatar, size_bytes = bytes.len(), "Avatar downloaded successfully");
-
-                // Detect the image format and determine the appropriate file extension
-                let Some(extension) = Self::detect_image_format(&bytes) else {
-                    // Format not supported, log warning with first 20 bytes for debugging
-                    let debug_bytes = &bytes[..bytes.len().min(20)];
-                    let hex_bytes = debug_bytes
-                        .iter()
-                        .map(|b| format!("{b:02x}"))
-                        .collect::<Vec<_>>()
-                        .join(" ");
-
-                    warn!("Unsupported avatar format at {avatar}, first 20 bytes: {hex_bytes}");
-
-                    // Skip this avatar and continue with the next one
-                    continue;
-                };
-
-                let filename = format!("avatar_{index}.{extension}");
-                let avatar_path = assets_dir.join(&filename);
-
-                debug!(
-                    author_name = %author.name,
-                    avatar_url = %avatar,
-                    avatar_path = %avatar_path.display(),
-                    "Writing avatar file with detected format"
-                );
-
-                // Write the bytes to the avatar file
-                fs::write(&avatar_path, &bytes).await.map_err(|err| {
-                    OgImageError::AvatarWriteError {
-                        path: avatar_path.clone(),
-                        source: err,
-                    }
-                })?;
-
-                debug!(
-                    author_name = %author.name,
-                    path = %avatar_path.display(),
-                    size_bytes = bytes.len(),
-                    "Avatar processed and written successfully"
-                );
-
-                // Store the mapping from the avatar source to the numbered filename
-                avatar_map.insert(avatar.as_ref(), filename);
-            }
+        if let Some(filename) = self
+            .download_avatar(&client, community_avatar, "community", assets_dir)
+            .await?
+        {
+            avatar_map.insert(community_avatar.as_ref(), filename);
         }
 
         Ok(avatar_map)
+    }
+
+    /// Downloads a single avatar and saves it to the assets directory.
+    /// Returns the filename if successful, None if the avatar should be skipped.
+    async fn download_avatar(
+        &self,
+        client: &reqwest::Client,
+        avatar_url: &str,
+        prefix: &str,
+        assets_dir: &Path,
+    ) -> Result<Option<String>, OgImageError> {
+        debug!(url = %avatar_url, "Downloading avatar from URL: {avatar_url}");
+        let response = client.get(avatar_url).send().await.map_err(|err| {
+            OgImageError::AvatarDownloadError {
+                url: avatar_url.to_string(),
+                source: err,
+            }
+        })?;
+
+        let status = response.status();
+        if status == StatusCode::NOT_FOUND {
+            warn!(url = %avatar_url, "Avatar URL returned 404 Not Found");
+            return Ok(None); // Skip this avatar if not found
+        }
+
+        if let Err(err) = response.error_for_status_ref() {
+            return Err(OgImageError::AvatarDownloadError {
+                url: avatar_url.to_string(),
+                source: err,
+            });
+        }
+
+        let content_length = response.content_length();
+        debug!(
+            url = %avatar_url,
+            content_length = ?content_length,
+            status = %response.status(),
+            "Avatar download response received"
+        );
+
+        let bytes = response.bytes().await;
+        let bytes = bytes.map_err(|err| {
+            error!(url = %avatar_url, error = %err, "Failed to read avatar response bytes");
+            OgImageError::AvatarDownloadError {
+                url: avatar_url.to_string(),
+                source: err,
+            }
+        })?;
+
+        debug!(url = %avatar_url, size_bytes = bytes.len(), "Avatar downloaded successfully");
+
+        // Detect the image format and determine the appropriate file extension
+        let Some(extension) = Self::detect_image_format(&bytes) else {
+            // Format not supported, log warning with first 20 bytes for debugging
+            let debug_bytes = &bytes[..bytes.len().min(20)];
+            let hex_bytes = debug_bytes
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<Vec<_>>()
+                .join(" ");
+
+            warn!("Unsupported avatar format at {avatar_url}, first 20 bytes: {hex_bytes}");
+
+            // Skip this avatar and continue with the next one
+            return Ok(None);
+        };
+
+        let filename = format!("{prefix}_avatar.{extension}");
+        let avatar_path = assets_dir.join(&filename);
+
+        debug!(
+            avatar_url = %avatar_url,
+            avatar_path = %avatar_path.display(),
+            "Writing avatar file with detected format"
+        );
+
+        // Write the bytes to the avatar file
+        fs::write(&avatar_path, &bytes)
+            .await
+            .map_err(|err| OgImageError::AvatarWriteError {
+                path: avatar_path.clone(),
+                source: err,
+            })?;
+
+        debug!(
+            path = %avatar_path.display(),
+            size_bytes = bytes.len(),
+            "Avatar processed and written successfully"
+        );
+
+        Ok(Some(filename))
     }
 
     /// Generates an OpenGraph image using the provided data.
@@ -340,21 +379,17 @@ impl OgImageGenerator {
     /// # Examples
     ///
     /// ```no_run
-    /// use crates_io_og_image::{OgImageGenerator, OgImageData, OgImageAuthorData, OgImageError};
+    /// use crates_io_og_image::{OgImageGenerator, OgImageData, OgImageAuthorData, OgImageCommunityData, OgImageError};
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), OgImageError> {
     /// let generator = OgImageGenerator::default();
     /// let data = OgImageData {
-    ///     name: "my-crate",
-    ///     version: "1.0.0",
-    ///     description: Some("A sample crate"),
-    ///     license: Some("MIT"),
-    ///     tags: &["web", "api"],
-    ///     authors: &[OgImageAuthorData { name: "user", avatar: None }],
-    ///     lines_of_code: Some(5000),
-    ///     crate_size: 100,
-    ///     releases: 10,
+    ///     question: "Will AI solve climate change by 2030?",
+    ///     author: OgImageAuthorData::new("user", "https://example.com/avatar.png"),
+    ///     community: OgImageCommunityData::new("climate", "https://example.com/community.png"),
+    ///     outcome: "NONE",
+    ///     graph: &[],
     /// };
     /// let image_file = generator.generate(data).await?;
     /// println!("Generated image at: {:?}", image_file.path());
@@ -362,9 +397,9 @@ impl OgImageGenerator {
     /// # }
     /// ```
     #[instrument(skip(self, data), fields(
-        crate.name = %data.name,
-        crate.version = %data.version,
-        author_count = data.authors.len(),
+        question = %data.question,
+        author = %data.author.name,
+        community = %data.community.handle,
     ))]
     pub async fn generate(&self, data: OgImageData<'_>) -> Result<NamedTempFile, OgImageError> {
         let start_time = std::time::Instant::now();
@@ -380,23 +415,15 @@ impl OgImageGenerator {
         fs::create_dir(&assets_dir).await?;
 
         debug!("Copying bundled assets to temporary directory");
-        let cargo_logo = include_bytes!("../template/assets/cargo.png");
-        fs::write(assets_dir.join("cargo.png"), cargo_logo).await?;
-        let rust_logo_svg = include_bytes!("../template/assets/rust-logo.svg");
-        fs::write(assets_dir.join("rust-logo.svg"), rust_logo_svg).await?;
-
-        // Copy SVG icons
-        debug!("Copying SVG icon assets");
-        let code_branch_svg = include_bytes!("../template/assets/code-branch.svg");
-        fs::write(assets_dir.join("code-branch.svg"), code_branch_svg).await?;
-        let code_svg = include_bytes!("../template/assets/code.svg");
-        fs::write(assets_dir.join("code.svg"), code_svg).await?;
-        let scale_balanced_svg = include_bytes!("../template/assets/scale-balanced.svg");
-        fs::write(assets_dir.join("scale-balanced.svg"), scale_balanced_svg).await?;
-        let tag_svg = include_bytes!("../template/assets/tag.svg");
-        fs::write(assets_dir.join("tag.svg"), tag_svg).await?;
-        let weight_hanging_svg = include_bytes!("../template/assets/weight-hanging.svg");
-        fs::write(assets_dir.join("weight-hanging.svg"), weight_hanging_svg).await?;
+        // Copy prediction market SVG icons
+        let inertia_svg = include_bytes!("../template/assets/inertia.svg");
+        fs::write(assets_dir.join("inertia.svg"), inertia_svg).await?;
+        let likes_svg = include_bytes!("../template/assets/likes.svg");
+        fs::write(assets_dir.join("likes.svg"), likes_svg).await?;
+        let og_template_svg = include_bytes!("../template/assets/og-template.svg");
+        fs::write(assets_dir.join("og-template.svg"), og_template_svg).await?;
+        let volume_svg = include_bytes!("../template/assets/volume.svg");
+        fs::write(assets_dir.join("volume.svg"), volume_svg).await?;
 
         // Process avatars - download URLs and copy assets
         let avatar_start_time = std::time::Instant::now();
@@ -619,14 +646,6 @@ mod tests {
             .with_body(include_bytes!("../template/assets/test-avatar.jpg"))
             .create();
 
-        // Mock for unsupported file type (WebP)
-        server
-            .mock("GET", "/test-avatar.webp")
-            .with_status(200)
-            .with_header("content-type", "image/webp")
-            .with_body(include_bytes!("../template/assets/test-avatar.webp"))
-            .create();
-
         // Mock for 404 avatar download
         server
             .mock("GET", "/missing-avatar.png")
@@ -638,117 +657,80 @@ mod tests {
         server
     }
 
-    const fn author(name: &str) -> OgImageAuthorData<'_> {
-        OgImageAuthorData::new(name, None)
-    }
-
-    fn author_with_avatar(name: &str, url: String) -> OgImageAuthorData<'_> {
-        OgImageAuthorData::with_url(name, url)
-    }
-
-    fn create_minimal_test_data() -> OgImageData<'static> {
-        static AUTHORS: &[OgImageAuthorData<'_>] = &[author("author")];
+    fn create_minimal_test_data(server_url: &str) -> OgImageData<'static> {
+        let author_avatar = Box::leak(format!("{server_url}/test-avatar.png").into_boxed_str());
+        let community_avatar = Box::leak(format!("{server_url}/test-avatar.jpg").into_boxed_str());
 
         OgImageData {
-            name: "minimal-crate",
-            version: "1.0.0",
-            description: None,
-            license: None,
-            tags: &[],
-            authors: AUTHORS,
-            lines_of_code: None,
-            crate_size: 10000,
-            releases: 1,
+            question: "Will this test pass?",
+            author: OgImageAuthorData::new("test-user", author_avatar),
+            community: OgImageCommunityData::new("test-community", community_avatar),
+            outcome: "NONE",
+            graph: &[],
         }
     }
 
-    fn create_escaping_authors(server_url: &str) -> Vec<OgImageAuthorData<'_>> {
-        vec![
-            author_with_avatar(
-                "author \"with quotes\"",
-                format!("{server_url}/test-avatar.png"),
-            ),
-            author("author\\with\\backslashes"),
-            author("author#with#hashes"),
-        ]
-    }
+    fn create_prediction_test_data(server_url: &str) -> OgImageData<'static> {
+        static DATA_POINTS_YES: &[OgImageDataPoint] = &[
+            OgImageDataPoint {
+                time: 1744249342,
+                value: 50,
+            },
+            OgImageDataPoint {
+                time: 1744249423,
+                value: 60,
+            },
+            OgImageDataPoint {
+                time: 1744924887,
+                value: 5,
+            },
+            OgImageDataPoint {
+                time: 1745010399,
+                value: 40,
+            },
+        ];
 
-    fn create_escaping_test_data<'a>(authors: &'a [OgImageAuthorData<'a>]) -> OgImageData<'a> {
-        OgImageData {
-            name: "crate-with-\"quotes\"",
-            version: "1.0.0-\"beta\"",
-            description: Some(
-                "A crate with \"quotes\", \\ backslashes, and other special chars: #[]{}()",
-            ),
-            license: Some("MIT OR \"Apache-2.0\""),
-            tags: &[
-                "tag-with-\"quotes\"",
-                "tag\\with\\backslashes",
-                "tag#with#symbols",
-            ],
-            authors,
-            lines_of_code: Some(42),
-            crate_size: 256256,
-            releases: 5,
-        }
-    }
+        static DATA_POINTS_NO: &[OgImageDataPoint] = &[
+            OgImageDataPoint {
+                time: 1744249342,
+                value: 50,
+            },
+            OgImageDataPoint {
+                time: 1744249396,
+                value: 40,
+            },
+            OgImageDataPoint {
+                time: 1744352237,
+                value: 25,
+            },
+            OgImageDataPoint {
+                time: 1744757651,
+                value: 99,
+            },
+        ];
 
-    fn create_overflow_authors(server_url: &str) -> Vec<OgImageAuthorData<'_>> {
-        vec![
-            author_with_avatar("alice-wonderland", format!("{server_url}/test-avatar.png")),
-            author("bob-the-builder"),
-            author_with_avatar("charlie-brown", format!("{server_url}/test-avatar.jpg")),
-            author("diana-prince"),
-            author_with_avatar(
-                "edward-scissorhands",
-                format!("{server_url}/test-avatar.png"),
-            ),
-            author("fiona-apple"),
-            author_with_avatar(
-                "george-washington",
-                format!("{server_url}/test-avatar.webp"),
-            ),
-            author_with_avatar("helen-keller", format!("{server_url}/test-avatar.jpg")),
-            author("isaac-newton"),
-            author("jane-doe"),
-        ]
-    }
+        static GRAPH: &[OgImageGraphData<'static>] = &[
+            OgImageGraphData {
+                outcome: "Yes",
+                color: "#00F29C",
+                data: DATA_POINTS_YES,
+            },
+            OgImageGraphData {
+                outcome: "No",
+                color: "#D8605A",
+                data: DATA_POINTS_NO,
+            },
+        ];
 
-    fn create_overflow_test_data<'a>(authors: &'a [OgImageAuthorData<'a>]) -> OgImageData<'a> {
-        OgImageData {
-            name: "super-long-crate-name-for-testing-overflow-behavior",
-            version: "2.1.0-beta.1+build.12345",
-            description: Some(
-                "This is an extremely long description that tests how the layout handles descriptions that might wrap to multiple lines or overflow the available space in the OpenGraph image template design. This is an extremely long description that tests how the layout handles descriptions that might wrap to multiple lines or overflow the available space in the OpenGraph image template design.",
-            ),
-            license: Some("MIT/Apache-2.0/ISC/BSD-3-Clause"),
-            tags: &[
-                "web-framework",
-                "async-runtime",
-                "database-orm",
-                "serialization",
-                "networking",
-            ],
-            authors,
-            lines_of_code: Some(147000),
-            crate_size: 2847123,
-            releases: 1432,
-        }
-    }
-
-    fn create_simple_test_data() -> OgImageData<'static> {
-        static AUTHORS: &[OgImageAuthorData<'_>] = &[author("test-user")];
+        let author_avatar = Box::leak(format!("{server_url}/test-avatar.png").into_boxed_str());
+        let community_avatar = Box::leak(format!("{server_url}/test-avatar.jpg").into_boxed_str());
 
         OgImageData {
-            name: "test-crate",
-            version: "1.0.0",
-            description: Some("A test crate for OpenGraph image generation"),
-            license: Some("MIT/Apache-2.0"),
-            tags: &["testing", "og-image"],
-            authors: AUTHORS,
-            lines_of_code: Some(1000),
-            crate_size: 42012,
-            releases: 1,
+            question: "Will AI achieve superintelligence by 2030?",
+            author: OgImageAuthorData::new("@ai_researcher", author_avatar),
+            community: OgImageCommunityData::new("AI Predictions", community_avatar),
+            outcome: "NONE",
+            graph: GRAPH,
         }
     }
 
@@ -765,52 +747,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_generate_og_image_snapshot() {
+    async fn test_generate_og_image_prediction_snapshot() {
         let _guard = init_tracing();
-        let data = create_simple_test_data();
-
-        if let Some(image_data) = generate_image(data).await {
-            insta::assert_binary_snapshot!("generated_og_image.png", image_data);
-        }
-    }
-
-    #[tokio::test]
-    async fn test_generate_og_image_overflow_snapshot() {
-        let _guard = init_tracing();
-
         let server = create_mock_avatar_server().await;
         let server_url = server.url();
-
-        let authors = create_overflow_authors(&server_url);
-        let data = create_overflow_test_data(&authors);
+        let data = create_prediction_test_data(&server_url);
 
         if let Some(image_data) = generate_image(data).await {
-            insta::assert_binary_snapshot!("generated_og_image_overflow.png", image_data);
+            insta::assert_binary_snapshot!("generated_prediction_image.png", image_data);
         }
     }
 
     #[tokio::test]
     async fn test_generate_og_image_minimal_snapshot() {
         let _guard = init_tracing();
-        let data = create_minimal_test_data();
-
-        if let Some(image_data) = generate_image(data).await {
-            insta::assert_binary_snapshot!("generated_og_image_minimal.png", image_data);
-        }
-    }
-
-    #[tokio::test]
-    async fn test_generate_og_image_escaping_snapshot() {
-        let _guard = init_tracing();
-
         let server = create_mock_avatar_server().await;
         let server_url = server.url();
-
-        let authors = create_escaping_authors(&server_url);
-        let data = create_escaping_test_data(&authors);
+        let data = create_minimal_test_data(&server_url);
 
         if let Some(image_data) = generate_image(data).await {
-            insta::assert_binary_snapshot!("generated_og_image_escaping.png", image_data);
+            insta::assert_binary_snapshot!("generated_minimal_prediction_image.png", image_data);
         }
     }
 
@@ -822,52 +778,44 @@ mod tests {
         let server_url = server.url();
 
         // Create test data with a 404 avatar URL - should skip the avatar gracefully
-        let authors = vec![author_with_avatar(
-            "test-user",
-            format!("{server_url}/missing-avatar.png"),
-        )];
+        let author_avatar = format!("{server_url}/missing-avatar.png");
+        let community_avatar = format!("{server_url}/test-avatar.jpg");
+
         let data = OgImageData {
-            name: "test-crate-404",
-            version: "1.0.0",
-            description: Some("A test crate with 404 avatar"),
-            license: Some("MIT"),
-            tags: &["testing"],
-            authors: &authors,
-            lines_of_code: Some(1000),
-            crate_size: 42012,
-            releases: 1,
+            question: "Will this handle 404 avatars gracefully?",
+            author: OgImageAuthorData::new("test-user", &author_avatar),
+            community: OgImageCommunityData::new("test-community", &community_avatar),
+            outcome: "NONE",
+            graph: &[],
         };
 
         if let Some(image_data) = generate_image(data).await {
-            insta::assert_binary_snapshot!("404-avatar.png", image_data);
+            insta::assert_binary_snapshot!("prediction-404-avatar.png", image_data);
         }
     }
 
     #[tokio::test]
-    async fn test_generate_og_image_unicode_truncation() {
+    async fn test_generate_og_image_long_question() {
         let _guard = init_tracing();
 
-        // Test case that reproduces the Unicode truncation bug from issue #11524
-        // Uses the exact description from "adder-codec-rs" crate which contains
-        // multibyte Unicode characters (Δ) that cause string slicing to fail
-        static AUTHORS: &[OgImageAuthorData<'_>] = &[author("adder-codec-rs-author")];
+        let server = create_mock_avatar_server().await;
+        let server_url = server.url();
 
+        // Create avatar URLs with proper lifetime
+        let author_avatar = format!("{server_url}/test-avatar.png");
+        let community_avatar = format!("{server_url}/test-avatar.jpg");
+
+        // Test case with a very long question to test text truncation
         let data = OgImageData {
-            name: "adder-codec-rs",
-            version: "1.0.0",
-            description: Some(
-                "Encoder/transcoder/decoder for raw and compressed ADΔER (Address, Decimation, Δt Event Representation) streams. Includes a transcoder for casting either framed or event video into an ADΔER representation in a manner which preserves the temporal resolution of the source. This is a very long description that should trigger text truncation to test the Unicode character boundary issue when the text is too long to fit in the available space. Adding even more text with Unicode characters like ADΔER and Δt to ensure we hit the problematic slice operation at character boundaries.",
-            ),
-            license: Some("MIT"),
-            tags: &["codec", "adder", "event-representation"],
-            authors: AUTHORS,
-            lines_of_code: Some(5000),
-            crate_size: 128000,
-            releases: 3,
+            question: "This is a very long prediction market question that should test how the layout handles questions that might wrap to multiple lines or overflow the available space in the OpenGraph image template design. Will this extremely long question be handled gracefully by the text rendering system?",
+            author: OgImageAuthorData::new("@verbose_predictor", &author_avatar),
+            community: OgImageCommunityData::new("Long Questions Community", &community_avatar),
+            outcome: "NONE",
+            graph: &[],
         };
 
         if let Some(image_data) = generate_image(data).await {
-            insta::assert_binary_snapshot!("unicode-truncation.png", image_data);
+            insta::assert_binary_snapshot!("long-question.png", image_data);
         }
     }
 }

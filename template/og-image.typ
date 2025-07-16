@@ -137,7 +137,7 @@
         box(baseline: 30%, [#render-avatar(author.avatar, size: 1.25em)])
         h(0.2em)
     }
-    [*#author.name*]
+    [*\@#author.name*]
 }
 
 // Renders a community with optional avatar and name
@@ -194,9 +194,9 @@
 // =============================================================================
 // Load data from sys.inputs
 
-// #let data = json(bytes(sys.inputs.data))
-#let data = json("data.json")
-// #let avatar_map = json(bytes(sys.inputs.at("avatar_map", default: "{}")))
+#let data = json(bytes(sys.inputs.data))
+// #let data = json("data.json")
+#let avatar_map = json(bytes(sys.inputs.at("avatar_map", default: "{}")))
 
 // =============================================================================
 // MAIN DOCUMENT
@@ -246,20 +246,22 @@
 
         // Author
         set text(size: 15pt, fill: colors.text-light)
+        let author-avatar = none
+        let community-avatar = none
         let author-with-avatar = {
-                let avatar = none
-                if data.author.avatar != none {
-                        avatar = "assets/" + data.author.avatar
-                }
-                (name: data.author.name, avatar: avatar)
+            let avatar_path = avatar_map.at(data.author.avatar, default: none)
+            if avatar_path != none {
+                author-avatar = "assets/" + avatar_path
             }
-            let community-with-avatar = {
-                let avatar = none
-                if data.community.avatar != none {
-                    avatar = "assets/" + data.community.avatar
-                }
-                (handle: data.community.handle, avatar: avatar)
+            (name: data.author.name, avatar: author-avatar)
+        }
+        let community-with-avatar = {
+            let avatar_path = avatar_map.at(data.author.avatar, default: none)
+            if avatar_path != none {
+                community-avatar = "assets/" + avatar_path
             }
+            (handle: data.community.handle, avatar: community-avatar)
+        }
 
 
         render-author-community(author-with-avatar, community-with-avatar)
@@ -275,8 +277,8 @@
           import draw: *
 
           let adjust_timestamps(data_array) = {
-          let sorted_data = data_array.sorted(key: item => item.time)
-          let adjusted = (sorted_data.at(0),)
+            let sorted_data = data_array.sorted(key: item => item.time)
+            let adjusted = (sorted_data.at(0),)
             for i in range(1, sorted_data.len()) {
               let prev_time = adjusted.at(-1).time
               let current_time = sorted_data.at(i).time
@@ -293,80 +295,70 @@
             adjusted
           }
 
-          let adjusted_no_orders = adjust_timestamps(data.graph.noOrders)
-          let adjusted_yes_orders = adjust_timestamps(data.graph.yesOrders)
-          let no_orders_end = adjusted_no_orders.at(-1).time
-          let yes_orders_end = adjusted_yes_orders.at(-1).time
+          // Process each graph series and adjust timestamps
+          let adjusted_series = ()
+          let all_times = ()
+          let all_values = ()
 
-          adjusted_no_orders = if no_orders_end < yes_orders_end {
-            let temp = adjusted_no_orders
-            temp.at(-1).time = yes_orders_end
-            temp
-          } else {
-            adjusted_no_orders
-          }
-          adjusted_yes_orders = if yes_orders_end < no_orders_end {
-            let temp = adjusted_yes_orders
-            temp.at(-1).time = no_orders_end
-            temp
-          } else {
-            adjusted_yes_orders
+          for series in data.graph {
+            let adjusted_data = adjust_timestamps(series.data)
+            adjusted_series.push((
+              outcome: series.outcome,
+              color: series.color,
+              data: adjusted_data
+            ))
+            all_times = all_times + adjusted_data.map(item => item.time)
+            all_values = all_values + adjusted_data.map(item => item.value)
           }
 
-          let all_times = adjusted_no_orders.map(item => item.time) + adjusted_yes_orders.map(item => item.time)
+          // Find the maximum end time across all series
+          let max_end_time = calc.max(..all_times)
+
+          // Extend all series to the same end time
+          for i in range(adjusted_series.len()) {
+            let series = adjusted_series.at(i)
+            let last_point = series.data.at(-1)
+            if last_point.time < max_end_time {
+              let extended_data = series.data
+              extended_data.at(-1).time = max_end_time
+              adjusted_series.at(i).data = extended_data
+            }
+          }
+
           let base_time = calc.min(..all_times)
-          let all_values = adjusted_no_orders.map(item => item.value) + adjusted_yes_orders.map(item => item.value)
           let max_time_hours = calc.max(..all_times.map(t => (t - base_time) / 3600))
           let max_value = calc.max(..all_values)
 
-          let no_orders_data = adjusted_no_orders.map(item => (
-            (item.time - base_time) / 3600,
-            item.value
-          ))
+          // Convert timestamps to hours and prepare plot data
+          let plot_series = ()
+          for series in adjusted_series {
+            let plot_data = series.data.map(item => (
+              (item.time - base_time) / 3600,
+              item.value
+            ))
+            plot_series.push((
+              outcome: series.outcome,
+              color: series.color,
+              data: plot_data,
+              last_value: series.data.at(-1).value
+            ))
+          }
 
-          let yes_orders_data = adjusted_yes_orders.map(item => (
-            (item.time - base_time) / 3600,
-            item.value
-          ))
-
-          let yes_percentage = data.odds.find((o) => o.outcome == "Yes").percentage
-          let no_percentage = data.odds.find((o) => o.outcome == "No").percentage
-
+          // Sort series by last value (highest first for proper layering)
+          plot_series = plot_series.sorted(key: series => -series.last_value)
 
           let body = {}
-          if (yes_percentage > no_percentage) {
-            body = {
-              plot.add(
-                yes_orders_data,
-                style: (stroke: (paint: colors.yes, thickness: 8pt)),
-                mark-style: (fill: colors.yes, stroke: colors.yes),
-                mark: "o",
-                label: text([Yes: *#yes_percentage%*], size: 15pt)
-              )
 
-              plot.add(
-                no_orders_data,
-                style: (stroke: (paint: colors.no, thickness: 8pt)),
-                mark-style: (fill: colors.no, stroke: colors.no),
-                mark: "o",
-                label: text([No: *#no_percentage%*], size: 15pt)
-              )
-            }
-          } else {
+          // Add each series to the plot
+          for series in plot_series {
             body = {
+              body
               plot.add(
-                no_orders_data,
-                style: (stroke: (paint: colors.no, thickness: 8pt)),
-                mark-style: (fill: colors.no, stroke: colors.no),
+                series.data,
+                style: (stroke: (paint: rgb(series.color), thickness: 8pt)),
+                mark-style: (fill: rgb(series.color), stroke: rgb(series.color)),
                 mark: "o",
-                label: text([No: *#no_percentage%*], size: 14pt)
-              )
-              plot.add(
-                yes_orders_data,
-                style: (stroke: (paint: colors.yes, thickness: 8pt)),
-                mark-style: (fill: colors.yes, stroke: colors.yes),
-                mark: "o",
-                label: text([Yes: *#yes_percentage%*], size: 14pt)
+                label: text([#series.outcome: *#series.last_value%*], size: 15pt)
               )
             }
           }
@@ -380,7 +372,7 @@
             axis-style: none,
             legend: "north-east",
             legend-style: (fill: none, stroke: none),
-            { body }
+            body
           )
         })
     })

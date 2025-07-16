@@ -1,0 +1,7 @@
+---
+source: src/lib.rs
+assertion_line: 757
+expression: image_data
+extension: png
+snapshot_kind: binary
+---

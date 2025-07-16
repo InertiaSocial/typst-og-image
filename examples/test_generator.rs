@@ -1,4 +1,7 @@
-use crates_io_og_image::{OgImageAuthorData, OgImageData, OgImageGenerator};
+use crates_io_og_image::{
+    OgImageAuthorData, OgImageCommunityData, OgImageData, OgImageDataPoint, OgImageGenerator,
+    OgImageGraphData,
+};
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::{EnvFilter, fmt};
 
@@ -21,25 +24,91 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Test generating an image
     let data = OgImageData {
-        name: "example-crate",
-        version: "1.2.3",
-        description: Some("An example crate for testing OpenGraph image generation"),
-        license: Some("MIT/Apache-2.0"),
-        tags: &["example", "testing", "og-image"],
-        authors: &[
-            OgImageAuthorData::new("example-user", None),
-            OgImageAuthorData::with_url(
-                "Turbo87",
-                "https://avatars.githubusercontent.com/u/141300",
-            ),
-            OgImageAuthorData::with_url(
-                "carols10cents",
-                "https://avatars.githubusercontent.com/u/193874",
-            ),
+        question: "Hello, world",
+        author: OgImageAuthorData::new("t1c_dev", "https://avatars.githubusercontent.com/u/141300"),
+        community: OgImageCommunityData::new(
+            "example",
+            "https://avatars.githubusercontent.com/u/141300",
+        ),
+        outcome: "NONE",
+        graph: &[
+            OgImageGraphData {
+                outcome: "No",
+                color: "#D8605A",
+                data: &[
+                    OgImageDataPoint {
+                        time: 1744249342,
+                        value: 50,
+                    },
+                    OgImageDataPoint {
+                        time: 1744249396,
+                        value: 40,
+                    },
+                    OgImageDataPoint {
+                        time: 1744352237,
+                        value: 25,
+                    },
+                    OgImageDataPoint {
+                        time: 1744757651,
+                        value: 99,
+                    },
+                    OgImageDataPoint {
+                        time: 1744924914,
+                        value: 95,
+                    },
+                    OgImageDataPoint {
+                        time: 1745010415,
+                        value: 60,
+                    },
+                    OgImageDataPoint {
+                        time: 1745266299,
+                        value: 90,
+                    },
+                    OgImageDataPoint {
+                        time: 1745466299,
+                        value: 90,
+                    },
+                ],
+            },
+            OgImageGraphData {
+                outcome: "Yes",
+                color: "#00F29C",
+                data: &[
+                    OgImageDataPoint {
+                        time: 1744249342,
+                        value: 50,
+                    },
+                    OgImageDataPoint {
+                        time: 1744249423,
+                        value: 60,
+                    },
+                    OgImageDataPoint {
+                        time: 1744924887,
+                        value: 5,
+                    },
+                    OgImageDataPoint {
+                        time: 1745010399,
+                        value: 40,
+                    },
+                    OgImageDataPoint {
+                        time: 1745010432,
+                        value: 50,
+                    },
+                    OgImageDataPoint {
+                        time: 1745010443,
+                        value: 50,
+                    },
+                    OgImageDataPoint {
+                        time: 1745266284,
+                        value: 10,
+                    },
+                    OgImageDataPoint {
+                        time: 1745466299,
+                        value: 10,
+                    },
+                ],
+            },
         ],
-        lines_of_code: Some(2000),
-        crate_size: 75,
-        releases: 5,
     };
     match generator.generate(data).await {
         Ok(temp_file) => {
