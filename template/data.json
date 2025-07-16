@@ -1,0 +1,28 @@
+{
+  "question": "This is a very long title that is super long it is so long i can't wait for it to get to 100 chars!",
+  "rules": "Will this happen? Meow?????? silly kitties :3\nWho knows? sklsdjfghlsdfkgjskldfjgls\nA third line ehehehehehehe\nA fourth, secret line",
+  "tags": ["example", "testing", "og-image"],
+  "author":
+    {
+      "name": "@t1c_dev",
+      "avatar": "/test-avatar.png"
+    },
+  "community": {
+    "handle": "i/Deltarune",
+    "avatar": "/test-avatar.png"
+  },
+  "likes": 2000,
+  "volume": 15024,
+  "odds": [
+    {
+      "outcome": "Yes",
+      "percentage": 60,
+      "color": "#00613F"
+    },
+    {
+      "outcome": "No",
+      "percentage": 40,
+      "color": "#78211C"
+    }
+  ]
+}

@@ -1,5 +1,7 @@
 // =============================================================================
-// CRATES.IO OG-IMAGE TEMPLATE
+// Inertia OG image template
+// Based on the crates.io OG image template:
+// https://github.com/rust-lang/crates_io_og_image
 // =============================================================================
 // This template generates Open Graph images for crates.io crate.
 
@@ -8,25 +10,21 @@
 // =============================================================================
 
 #let colors = (
-    bg: oklch(97%, 0.0147, 98deg),
-    rust-overlay: oklch(36%, 0.07, 144deg, 20%),
-    header-bg: oklch(36%, 0.07, 144deg),
+    bg: gradient.linear(rgb(0, 97, 63), rgb(0, 51, 33), rgb(0, 25, 17), rgb(0, 25, 17), rgb(0, 25, 17),  rgb(0, 97, 63), angle: 45deg),
+    logo-overlay: oklch(43.5%, 0.1, 161deg, 30%),
     header-text: oklch(100%, 0, 0deg),
-    primary: oklch(36%, 0.07, 144deg),
-    text: oklch(51%, 0.05, 144deg),
-    text-light: oklch(60%, 0.05, 144deg),
+    primary: rgb(41, 255, 180),
+    text: rgb(229, 255, 246),
+    text-light: rgb(204, 255, 237),
     avatar-bg: oklch(100%, 0, 0deg),
     avatar-border: oklch(87%, 0.01, 98deg),
-    tag-bg: oklch(36%, 0.07, 144deg),
-    tag-text: oklch(100%, 0, 0deg),
 )
 
 // =============================================================================
 // LAYOUT CONSTANTS
 // =============================================================================
 
-#let header-height = 60pt
-#let footer-height = 4pt
+#let header-height = 80pt
 
 // =============================================================================
 // TEXT TRUNCATION UTILITIES
@@ -115,9 +113,9 @@
 // Renders a circular avatar image with border
 // @param avatar-path: Path to the avatar image file
 // @param size: Size of the avatar (default: 1em)
-#let render-avatar(avatar-path, size: 1em) = {
+#let render-avatar(avatar-path, size: 1em, radius: 50%) = {
     box(clip: true, fill: colors.avatar-bg, stroke: 0.5pt + colors.avatar-border,
-        radius: 50%, inset: 1pt,
+        radius: radius, inset: 1pt,
         box(clip: true, radius: 50%, image(avatar-path, width: size))
     )
 }
@@ -128,92 +126,27 @@
 // Complex logic for displaying multiple authors with proper grammar
 
 // Renders an author with optional avatar and name
-// @param author: Object with 'name' and optional 'avatar' properties
 #let render-author(author) = {
     if author.avatar != none {
         h(0.2em)
-        box(baseline: 30%, [#render-avatar(author.avatar, size: 1.5em)])
+        box(baseline: 30%, [#render-avatar(author.avatar, size: 1.25em)])
         h(0.2em)
     }
-    author.name
+    [*#author.name*]
 }
 
-// Generates grammatically correct author list text
-#let generate-authors-text(authors, maxVisible: none) = {
-    if authors.len() == 0 {
-        return ""
+// Renders a community with optional avatar and name
+#let render-community(community) = {
+    if community.avatar != none {
+        h(0.2em)
+        box(baseline: 30%, [#render-avatar(community.avatar, size: 1.25em, radius: 25%)])
+        h(0.2em)
     }
-
-    let prefix = "by "
-    let visible = if maxVisible != none {
-        calc.min(maxVisible, authors.len())
-    } else {
-        authors.len()
-    }
-
-    if authors.len() == 1 {
-        return prefix + render-author(authors.at(0))
-    }
-
-    // Build the visible authors list
-    let authors-text = ""
-    for i in range(visible) {
-        if i == 0 {
-            authors-text += render-author(authors.at(i))
-        } else if i == visible - 1 and visible == authors.len() {
-            // Last author and we're showing all authors
-            authors-text += " and " + render-author(authors.at(i))
-        } else {
-            // Not the last author, or we're truncating
-            authors-text += ", " + render-author(authors.at(i))
-        }
-    }
-
-    // Add "and X others" suffix if truncated
-    if visible < authors.len() {
-        let remaining = authors.len() - visible
-        let suffix = " and " + str(remaining) + " other"
-        if remaining > 1 {
-            suffix += "s"
-        }
-        authors-text += suffix
-    }
-
-    return prefix + authors-text
+    [*i\/#community.handle*]
 }
 
-// Renders authors list with intelligent truncation based on available width
-#let render-authors-list(authors, maxWidth: none) = {
-    layout(size => {
-        let maxWidth = if maxWidth != none {
-            maxWidth
-        } else {
-            size.width
-        }
-
-        if authors.len() == 0 {
-            return ""
-        }
-
-        // Try showing all authors first
-        let full-text = generate-authors-text(authors)
-        if measure(full-text).width <= maxWidth {
-            return full-text
-        }
-
-        // Reduce maxVisible until text fits
-        let maxVisible = authors.len() - 1
-        while maxVisible >= 1 {
-            let truncated-text = generate-authors-text(authors, maxVisible: maxVisible)
-            if measure(truncated-text).width <= maxWidth {
-                return truncated-text
-            }
-            maxVisible -= 1
-        }
-
-        // Fallback: just show first author and "and X others"
-        return generate-authors-text(authors, maxVisible: 1)
-    })
+#let render-author-community(author, community) = {
+    return [By #render-author(author) in #render-community(community)]
 }
 
 // =============================================================================
@@ -222,11 +155,11 @@
 // Reusable components for consistent styling
 
 #let render-header = {
-    rect(width: 100%, height: header-height, fill: colors.header-bg, {
+    rect(width: 100%, height: header-height, stroke: none, {
         place(left + horizon, dx: 30pt, {
-            box(baseline: 30%, image("assets/cargo.png", width: 35pt))
-            h(10pt)
-            text(size: 22pt, fill: colors.header-text, weight: "semibold")[crates.io]
+            box(baseline: 30%, image("assets/og-template.svg", width: 180pt))
+            // h(10pt)
+            // text(size: 22pt, fill: colors.header-text, weight: "semibold")[inetia.social]
         })
     })
 }
@@ -240,14 +173,13 @@
 }
 
 // Renders a metadata item with icon, title, and content
-#let render-metadata(title, content, icon-name) = {
+#let render-metadata(content, icon-name) = {
     let icon-path = "assets/" + icon-name + ".svg"
 
     box(inset: (right: 20pt),
-        grid(columns: (auto, auto), rows: (auto, auto), column-gutter: .75em, row-gutter: .5em,
-            grid.cell(rowspan: 2, align: horizon, colored-image(icon-path, colors.primary, height: 1.2em)),
-            text(size: 8pt, fill: colors.text-light, upper(title)),
-            text(size: 12pt, fill: colors.primary, content)
+        grid(columns: (auto, auto), rows: (auto, auto), column-gutter: 0.6em, row-gutter: .5em, align: horizon,
+            colored-image(icon-path, colors.text-light, height: 16pt),
+            text([*#content*], size: 16pt, fill: colors.text)
         )
     )
 }
@@ -257,86 +189,76 @@
 // =============================================================================
 // Load data from sys.inputs
 
-#let data = json(bytes(sys.inputs.data))
-#let avatar_map = json(bytes(sys.inputs.at("avatar_map", default: "{}")))
+// #let data = json(bytes(sys.inputs.data))
+#let data = json("data.json")
+// #let avatar_map = json(bytes(sys.inputs.at("avatar_map", default: "{}")))
 
 // =============================================================================
 // MAIN DOCUMENT
 // =============================================================================
 
 #set page(width: 600pt, height: 315pt, margin: 0pt, fill: colors.bg)
-#set text(font: "Fira Sans", fill: colors.text)
+#set text(font: "IBM Plex Sans", fill: colors.text)
 
-// Header with crates.io branding
 #render-header
 
-// Bottom border accent
-#place(bottom,
-    rect(width: 100%, height: footer-height, fill: colors.header-bg)
-)
-
-// Rust logo overlay (20% opacity watermark)
-#place(bottom + right, dx: 200pt, dy: 100pt,
-    colored-image("assets/rust-logo.svg", colors.rust-overlay, width: 300pt)
+// Inertia logo overlay (30% opacity watermark)
+#place(bottom + right, dx: 150pt, dy: 90pt,
+    colored-image("assets/inertia.svg", colors.logo-overlay, width: 420pt)
 )
 
 // Main content area
 #place(
     left + top,
-    dy: 60pt,
-    block(height: 100% - header-height - footer-height, inset: 35pt, clip: true, {
+    dy: 40pt,
+    block(height: 100% - header-height, inset: 35pt, clip: false, {
         // Crate name
-        block(text(size: 36pt, weight: "semibold", fill: colors.primary, truncate_to_width(data.name)))
+        block(text(size: 24.9pt, weight: "semibold", fill: colors.primary, data.question))
 
         // Tags
-        if data.at("tags", default: ()).len() > 0 {
+        // if data.at("tags", default: ()).len() > 0 {
+        //     block(
+        //         for (i, tag) in data.tags.enumerate() {
+        //             if i > 0 {
+        //                 h(3pt)
+        //             }
+        //             render-tag(text(size: 8pt, weight: "medium", "#" + tag))
+        //         }
+        //     )
+        // }
+
+        // Rules
+        if data.at("rules", default: none) != none {
             block(
-                for (i, tag) in data.tags.enumerate() {
-                    if i > 0 {
-                        h(3pt)
-                    }
-                    render-tag(text(size: 8pt, weight: "medium", "#" + tag))
-                }
+              text(size: 18pt, weight: "regular", truncate_to_height(data.rules, maxHeight: 80pt)),
+              above: 20pt,
             )
         }
 
-        // Description
-        if data.at("description", default: none) != none {
-            block(text(size: 14pt, weight: "regular", truncate_to_height(data.description, maxHeight: 60pt)))
-        }
-
         // Authors
-        if data.at("authors", default: ()).len() > 0 {
-            set text(size: 10pt, fill: colors.text-light)
-            let authors-with-avatars = data.authors.map(author => {
+        if data.at("author", default: ()).len() > 0 {
+            set text(size: 15pt, fill: colors.text-light)
+            let author-with-avatar = {
                 let avatar = none
-                if author.avatar != none {
-                    let avatar_path = avatar_map.at(author.avatar, default: none)
-                    if avatar_path != none {
-                        avatar = "assets/" + avatar_path
-                    }
+                if data.author.avatar != none {
+                        avatar = "assets/" + data.author.avatar
                 }
-                (name: author.name, avatar: avatar)
-            })
-            block(render-authors-list(authors-with-avatars))
+                (name: data.author.name, avatar: avatar)
+            }
+            let community-with-avatar = {
+                let avatar = none
+                if data.community.avatar != none {
+                    avatar = "assets/" + data.community.avatar
+                }
+                (handle: data.community.handle, avatar: avatar)
+            }
+            block(render-author-community(author-with-avatar, community-with-avatar), below: 24pt)
         }
 
-        place(bottom + left, float: true,
-            stack(dir: ltr, {
-                if data.at("releases", default: none) != none {
-                    render-metadata("Releases", data.releases, "tag")
-                }
-                render-metadata("Latest", truncate_to_width("v" + data.version, maxWidth: 80pt), "code-branch")
-                if data.at("license", default: none) != none {
-                    render-metadata("License", truncate_to_width(data.license, maxWidth: 100pt), "scale-balanced")
-                }
-                if data.at("lines_of_code", default: none) != none {
-                    render-metadata("SLoC", data.lines_of_code, "code")
-                }
-                if data.at("crate_size", default: none) != none {
-                    render-metadata("Size", data.crate_size, "weight-hanging")
-                }
-            })
-        )
+        // Metadata
+        stack(dir: ltr, {
+          render-metadata(data.likes, "likes")
+          render-metadata(text([\$#calc.round(data.volume / 100, digits: 2)]), "volume")
+        })
     })
 )
