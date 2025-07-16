@@ -212,7 +212,7 @@
     left + top,
     dy: 40pt,
     block(height: 100% - header-height, inset: 35pt, clip: false, {
-        // Crate name
+        // Question
         block(text(size: 24.9pt, weight: "semibold", fill: colors.primary, data.question))
 
         // Tags
@@ -235,7 +235,7 @@
             )
         }
 
-        // Authors
+        // Author/community
         if data.at("author", default: ()).len() > 0 {
             set text(size: 15pt, fill: colors.text-light)
             let author-with-avatar = {
