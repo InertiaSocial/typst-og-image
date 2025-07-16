@@ -1,28 +1,98 @@
 {
-  "question": "This is a very long title that is super long it is so long i can't wait for it to get to 100 chars!",
-  "rules": "Will this happen? Meow?????? silly kitties :3\nWho knows? sklsdjfghlsdfkgjskldfjgls\nA third line ehehehehehehe\nA fourth, secret line",
-  "tags": ["example", "testing", "og-image"],
-  "author":
-    {
-      "name": "@t1c_dev",
-      "avatar": "/test-avatar.png"
-    },
-  "community": {
-    "handle": "i/Deltarune",
-    "avatar": "/test-avatar.png"
-  },
-  "likes": 2000,
-  "volume": 15024,
-  "odds": [
-    {
-      "outcome": "Yes",
-      "percentage": 60,
-      "color": "#00613F"
-    },
-    {
-      "outcome": "No",
-      "percentage": 40,
-      "color": "#78211C"
-    }
-  ]
+	"question": "This is a very long title that is super long it is so long i can't wait for it to get to 100 chars!",
+	"rules": "Will this happen? Meow?????? silly kitties :3\nWho knows? sklsdjfghlsdfkgjskldfjgls 😺😺😺😺😺\nA third line ehehehehehehe\nA fourth, secret line",
+	"tags": ["example", "testing", "og-image"],
+	"author": {
+		"name": "@t1c_dev",
+		"avatar": "/test-avatar.png"
+	},
+	"community": {
+		"handle": "example",
+		"avatar": "/test-avatar.png"
+	},
+	"likes": 2000,
+	"volume": 15024,
+	"outcome": "NONE",
+	"odds": [
+		{
+			"outcome": "Yes",
+			"percentage": 60,
+			"color": "#00613F"
+		},
+		{
+			"outcome": "No",
+			"percentage": 40,
+			"color": "#78211C"
+		}
+	],
+	"graph": {
+		"noOrders": [
+			{
+				"time": 1744249342,
+				"value": 50
+			},
+			{
+				"time": 1744249396,
+				"value": 40
+			},
+			{
+				"time": 1744352237,
+				"value": 25
+			},
+			{
+				"time": 1744757651,
+				"value": 99
+			},
+			{
+				"time": 1744924914,
+				"value": 95
+			},
+			{
+				"time": 1745010415,
+				"value": 60
+			},
+			{
+				"time": 1745266299,
+				"value": 90
+			},
+			{
+				"time": 1745466299,
+				"value": 90
+			}
+		],
+		"yesOrders": [
+			{
+				"time": 1744249342,
+				"value": 50
+			},
+			{
+				"time": 1744249423,
+				"value": 60
+			},
+			{
+				"time": 1744924887,
+				"value": 5
+			},
+			{
+				"time": 1745010399,
+				"value": 40
+			},
+			{
+				"time": 1745010432,
+				"value": 50
+			},
+			{
+				"time": 1745010443,
+				"value": 50
+			},
+			{
+				"time": 1745266284,
+				"value": 10
+			},
+			{
+				"time": 1745466299,
+				"value": 10
+			}
+		]
+	}
 }

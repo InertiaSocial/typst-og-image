@@ -9,11 +9,16 @@
 // COLOR PALETTE
 // =============================================================================
 
+#import "@preview/cetz:0.4.0": canvas, draw
+#import "@preview/cetz-plot:0.1.2": plot, chart
+
 #let colors = (
     bg: gradient.linear(rgb(0, 97, 63), rgb(0, 51, 33), rgb(0, 25, 17), rgb(0, 25, 17), rgb(0, 25, 17),  rgb(0, 97, 63), angle: 45deg),
     logo-overlay: oklch(43.5%, 0.1, 161deg, 30%),
     header-text: oklch(100%, 0, 0deg),
     primary: rgb(41, 255, 180),
+    yes: rgb(0, 242, 156),
+    no: oklch(63.68%, 0.152, 25.2deg),
     text: rgb(229, 255, 246),
     text-light: rgb(204, 255, 237),
     avatar-bg: oklch(100%, 0, 0deg),
@@ -146,7 +151,7 @@
 }
 
 #let render-author-community(author, community) = {
-    return [By #render-author(author) in #render-community(community)]
+  [By #render-author(author) in #render-community(community)]
 }
 
 // =============================================================================
@@ -207,6 +212,10 @@
     colored-image("assets/inertia.svg", colors.logo-overlay, width: 420pt)
 )
 
+// #place(bottom + center, dx: 0pt, dy: -15pt,
+
+// )
+
 // Main content area
 #place(
     left + top,
@@ -228,17 +237,130 @@
         // }
 
         // Rules
-        if data.at("rules", default: none) != none {
-            block(
-              text(size: 18pt, weight: "regular", truncate_to_height(data.rules, maxHeight: 80pt)),
-              above: 20pt,
-            )
-        }
+        // if data.at("rules", default: none) != none {
+        //     block(
+        //       text(size: 18pt, weight: "regular", truncate_to_height(data.rules, maxHeight: 80pt)),
+        //       above: 20pt,
+        //     )
+        // }
 
-        // Author/community
-        if data.at("author", default: ()).len() > 0 {
-            set text(size: 15pt, fill: colors.text-light)
-            let author-with-avatar = {
+        // Chart
+        canvas(length: 1.2cm, {
+          import draw: *
+
+          let adjust_timestamps(data_array) = {
+          let sorted_data = data_array.sorted(key: item => item.time)
+          let adjusted = (sorted_data.at(0),)
+            for i in range(1, sorted_data.len()) {
+              let prev_time = adjusted.at(-1).time
+              let current_time = sorted_data.at(i).time
+              let time_diff = current_time - prev_time
+
+              let new_time = if time_diff > 100 {
+                prev_time + 100
+              } else {
+                current_time
+              }
+
+              adjusted.push((time: new_time, value: sorted_data.at(i).value))
+            }
+            adjusted
+          }
+
+          let adjusted_no_orders = adjust_timestamps(data.graph.noOrders)
+          let adjusted_yes_orders = adjust_timestamps(data.graph.yesOrders)
+          let no_orders_end = adjusted_no_orders.at(-1).time
+          let yes_orders_end = adjusted_yes_orders.at(-1).time
+
+          adjusted_no_orders = if no_orders_end < yes_orders_end {
+            let temp = adjusted_no_orders
+            temp.at(-1).time = yes_orders_end
+            temp
+          } else {
+            adjusted_no_orders
+          }
+          adjusted_yes_orders = if yes_orders_end < no_orders_end {
+            let temp = adjusted_yes_orders
+            temp.at(-1).time = no_orders_end
+            temp
+          } else {
+            adjusted_yes_orders
+          }
+
+          let all_times = adjusted_no_orders.map(item => item.time) + adjusted_yes_orders.map(item => item.time)
+          let base_time = calc.min(..all_times)
+          let all_values = adjusted_no_orders.map(item => item.value) + adjusted_yes_orders.map(item => item.value)
+          let max_time_hours = calc.max(..all_times.map(t => (t - base_time) / 3600))
+          let max_value = calc.max(..all_values)
+
+          let no_orders_data = adjusted_no_orders.map(item => (
+            (item.time - base_time) / 3600,
+            item.value
+          ))
+
+          let yes_orders_data = adjusted_yes_orders.map(item => (
+            (item.time - base_time) / 3600,
+            item.value
+          ))
+
+          let yes_percentage = data.odds.find((o) => o.outcome == "Yes").percentage
+          let no_percentage = data.odds.find((o) => o.outcome == "No").percentage
+
+
+          let body = {}
+          if (yes_percentage > no_percentage) {
+            body = {
+              plot.add(
+                yes_orders_data,
+                style: (stroke: (paint: colors.yes, thickness: 8pt)),
+                mark-style: (fill: colors.yes, stroke: colors.yes),
+                mark: "o",
+                label: text([Yes: *#yes_percentage%*], size: 15pt)
+              )
+
+              plot.add(
+                no_orders_data,
+                style: (stroke: (paint: colors.no, thickness: 8pt)),
+                mark-style: (fill: colors.no, stroke: colors.no),
+                mark: "o",
+                label: text([No: *#no_percentage%*], size: 15pt)
+              )
+            }
+          } else {
+            body = {
+              plot.add(
+                no_orders_data,
+                style: (stroke: (paint: colors.no, thickness: 8pt)),
+                mark-style: (fill: colors.no, stroke: colors.no),
+                mark: "o",
+                label: text([No: *#no_percentage%*], size: 14pt)
+              )
+              plot.add(
+                yes_orders_data,
+                style: (stroke: (paint: colors.yes, thickness: 8pt)),
+                mark-style: (fill: colors.yes, stroke: colors.yes),
+                mark: "o",
+                label: text([Yes: *#yes_percentage%*], size: 14pt)
+              )
+            }
+          }
+
+          plot.plot(
+            size: (13, 2.5),
+            y-min: 0,
+            y-max: 100,
+            x-max: max_time_hours,
+            legends: none,
+            axis-style: none,
+            legend: "north-east",
+            legend-style: (fill: none, stroke: none),
+            { body }
+          )
+        })
+
+        // Metadata
+        set text(size: 15pt, fill: colors.text-light)
+        let author-with-avatar = {
                 let avatar = none
                 if data.author.avatar != none {
                         avatar = "assets/" + data.author.avatar
@@ -252,11 +374,10 @@
                 }
                 (handle: data.community.handle, avatar: avatar)
             }
-            block(render-author-community(author-with-avatar, community-with-avatar), below: 24pt)
-        }
 
-        // Metadata
-        stack(dir: ltr, {
+
+        render-author-community(author-with-avatar, community-with-avatar)
+        stack(dir: ltr,  {
           render-metadata(data.likes, "likes")
           render-metadata(text([\$#calc.round(data.volume / 100, digits: 2)]), "volume")
         })
