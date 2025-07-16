@@ -244,6 +244,32 @@
         //     )
         // }
 
+        // Author
+        set text(size: 15pt, fill: colors.text-light)
+        let author-with-avatar = {
+                let avatar = none
+                if data.author.avatar != none {
+                        avatar = "assets/" + data.author.avatar
+                }
+                (name: data.author.name, avatar: avatar)
+            }
+            let community-with-avatar = {
+                let avatar = none
+                if data.community.avatar != none {
+                    avatar = "assets/" + data.community.avatar
+                }
+                (handle: data.community.handle, avatar: avatar)
+            }
+
+
+        render-author-community(author-with-avatar, community-with-avatar)
+
+        // Metadata
+        // stack(dir: ltr,  {
+        //   render-metadata(data.likes, "likes")
+        //   render-metadata(text([\$#calc.round(data.volume / 100, digits: 2)]), "volume")
+        // })
+
         // Chart
         canvas(length: 1.2cm, {
           import draw: *
@@ -346,7 +372,7 @@
           }
 
           plot.plot(
-            size: (13, 2.5),
+            size: (13, 3.5),
             y-min: 0,
             y-max: 100,
             x-max: max_time_hours,
@@ -356,30 +382,6 @@
             legend-style: (fill: none, stroke: none),
             { body }
           )
-        })
-
-        // Metadata
-        set text(size: 15pt, fill: colors.text-light)
-        let author-with-avatar = {
-                let avatar = none
-                if data.author.avatar != none {
-                        avatar = "assets/" + data.author.avatar
-                }
-                (name: data.author.name, avatar: avatar)
-            }
-            let community-with-avatar = {
-                let avatar = none
-                if data.community.avatar != none {
-                    avatar = "assets/" + data.community.avatar
-                }
-                (handle: data.community.handle, avatar: avatar)
-            }
-
-
-        render-author-community(author-with-avatar, community-with-avatar)
-        stack(dir: ltr,  {
-          render-metadata(data.likes, "likes")
-          render-metadata(text([\$#calc.round(data.volume / 100, digits: 2)]), "volume")
         })
     })
 )
